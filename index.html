@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>TEST</title>
+</head>
+<body>
+<input type="file" id="f" accept=".xml" multiple onchange="load(this.files)">
+<div id="out">En attente...</div>
+<script>
+function load(files) {
+  var arr = Array.from(files);
+  var done = 0;
+  arr.forEach(function(f) {
+    var r = new FileReader();
+    r.onload = function(ev) {
+      try {
+        var txt = ev.target.result;
+        if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);
+        txt = txt.split('\r\n').join('\n').split('\r').join('\n');
+        
+        // Parser les blocs OPERATION
+        var ops = txt.match(/<OPERATION[^>]*>[\s\S]*?<\/OPERATION>/gi) || [];
+        var bH0 = null, bH24 = null;
+        for (var i = 0; i < ops.length; i++) {
+          var nm = ops[i].match(/name="([^"]*)"/i);
+          var name = nm ? nm[1] : '';
+          if (!bH24 && /H24/i.test(name) && /marche|ACCI/i.test(name)) bH24 = ops[i];
+          else if (!bH0 && /H0/i.test(name) && /marche|ACCI/i.test(name)) bH0 = ops[i];
+        }
+        if (!bH0 && !bH24) {
+          var meas = ops.filter(function(b){ return b.indexOf('lrMeanAccuracy') >= 0; });
+          if (meas.length >= 1) bH0 = meas[0];
+          if (meas.length >= 2) bH24 = meas[1];
+        }
+        
+        function gv(block, key) {
+          var data = block.match(/<Data>[\s\S]*?<\/Data>/gi) || [];
+          for (var i = 0; i < data.length; i++) {
+            var nm = data[i].match(/<(?:NAME|n)>([^<]*)<\/(?:NAME|n)>/i);
+            if (nm && nm[1].trim() === key) {
+              var vm = data[i].match(/<VALUE>([^<]*)<\/VALUE>/i);
+              if (vm) { var v = parseFloat(vm[1].trim()); return isNaN(v) ? null : v; }
+            }
+          }
+          return null;
+        }
+        
+        var sn = (txt.match(/<MOVEMENT>([^<]*)<\/MOVEMENT>/i)||[])[1] || f.name;
+        var ref = (txt.match(/<REFERENCE>([^<]*)<\/REFERENCE>/i)||[])[1] || '';
+        var h0rate = bH0 ? gv(bH0, 'lrMeanAccuracy') : null;
+        var h24rate = bH24 ? gv(bH24, 'lrMeanAccuracy') : null;
+        
+        document.getElementById('out').innerHTML += 
+          '<p>✓ ' + sn + ' | Réf: ' + ref + 
+          ' | H0 moy: ' + h0rate + ' | H24 moy: ' + h24rate + '</p>';
+      } catch(e) {
+        document.getElementById('out').innerHTML += '<p>ERREUR: ' + e.message + '</p>';
+      }
+      done++;
+    };
+    r.readAsText(f, 'utf-8');
+  });
+}
+</script>
+</body>
+</html>
